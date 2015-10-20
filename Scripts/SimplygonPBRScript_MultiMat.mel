@@ -1,0 +1,219 @@
+string $root = "C:\\work\\GitHub\\";
+
+string $simplygonSettingsFile = $root+"SimplygonPBRExample\\Settings\\SimplygonPBRSettingsMeshLOD.ini";              // settings for batch mode
+string $pbgShaderFile = $root+"SimplygonPBRExample\\Shader\\SimplygonPBRShader.fx";                              // path to Simplygon PBR shader
+string $textureOutputDirectory = $root+"SimplygonPBRExample\\OutputTextures\\";                                      // "" = default, "d:\\TextureOutputFolder\\" = custom
+string $cubeMapFilePath = $root+"SimplygonPBRExample\\Assets\\cube_1024_preblurred_angle3_Tenerife3.dds";    // cube map path for all meshes with material baking
+string $xmlExportDrive = $root+"SimplygonPBRExample\\XMLTempFolder\\";                                               // drive to store temporary xml files (c might be protexted)
+int $batchMode = 0;                                                                                         // set to 1 to enable batch mode
+
+// populate material list
+string $cgfxMaterials[] = `ls -type cgfxShader`;
+for( $cgfx_mat in $cgfxMaterials )
+{
+    string $technique = `getAttr ($cgfx_mat + ".technique")`;
+    if($technique != "PBR")
+    {
+        $cgfx_mat = "";
+    }
+}
+
+// create shading networks for each cgfx material
+// and export template to xml (for later use)
+string $inputMaterialString = "";
+for( $cgfx_mat in $cgfxMaterials )
+{
+    if(size ($cgfx_mat) == 0)
+        continue;
+        
+    SimplygonShadingNetwork
+    // create texture nodes
+    -cn $cgfx_mat TextureNode DiffuseSampler
+    -cn $cgfx_mat TextureNode SpecularSampler
+    -cn $cgfx_mat TextureNode RoughnessSampler
+    -cn $cgfx_mat TextureNode MetalnessSampler
+    -cn $cgfx_mat TextureNode NormalsSampler
+    
+    // override uv channels
+    -uva DiffuseSampler map1
+    -uva SpecularSampler map1
+    -uva RoughnessSampler map1
+    -uva MetalnessSampler map1
+    -uva NormalsSampler map1
+    
+    // override sRGB
+    -sa DiffuseSampler false
+    -sa SpecularSampler false
+    -sa RoughnessSampler false
+    -sa MetalnessSampler false
+    -sa NormalsSampler false
+    
+    // connect textures to simplygon channels
+    -sce $cgfx_mat Diffuse DiffuseSampler
+    -sce $cgfx_mat Specular SpecularSampler
+    -sce $cgfx_mat Roughness RoughnessSampler
+    -sce $cgfx_mat Metalness MetalnessSampler
+    -sce $cgfx_mat Normals NormalsSampler
+    
+    // export material channel templates to xml for later use
+    -exf $cgfx_mat Diffuse ($xmlExportDrive + $cgfx_mat + "_Diffuse.xml")
+    -exf $cgfx_mat Specular ($xmlExportDrive + $cgfx_mat + "_Specular.xml")
+    -exf $cgfx_mat Roughness ($xmlExportDrive + $cgfx_mat + "_Roughness.xml")
+    -exf $cgfx_mat Metalness ($xmlExportDrive + $cgfx_mat + "_Metalness.xml")
+    -exf $cgfx_mat Normals ($xmlExportDrive + $cgfx_mat + "_Normals.xml");
+    
+    // append material name to string (for later use)
+    $inputMaterialString += $cgfx_mat + "|";
+}
+
+// parse arguments
+string $arguments = "";
+for( $cgfx_material in $cgfxMaterials )
+{
+    if(size ($cgfx_material) == 0)
+        continue;
+        
+    $arguments += " -ixf \"" + $cgfx_material + "\" Diffuse \"" + ($xmlExportDrive + $cgfx_material + "_Diffuse.xml\"");
+    $arguments += " -ixf \"" + $cgfx_material + "\" Specular \"" + ($xmlExportDrive + $cgfx_material + "_Specular.xml\"");
+    $arguments += " -ixf \"" + $cgfx_material + "\" Roughness \"" + ($xmlExportDrive + $cgfx_material + "_Roughness.xml\"");
+    $arguments += " -ixf \"" + $cgfx_material + "\" Metalness \"" + ($xmlExportDrive + $cgfx_material + "_Metalness.xml\"");
+    $arguments += " -ixf \"" + $cgfx_material + "\" Normals \"" + ($xmlExportDrive + $cgfx_material + "_Normals.xml\"");
+}
+
+// correct double slashes
+$arguments = substituteAllString($arguments, "\\", "\\\\");
+
+// launch Simplygon and fetch the result
+string $processedMeshes[];
+if($batchMode)
+{
+    $processedMeshes = eval("Simplygon -b -dgm -tod $textureOutputDirectory -sf $simplygonSettingsFile -asm $inputMaterialString" + $arguments);
+}
+else
+{
+    $processedMeshes = eval("Simplygon -dgm -tod $textureOutputDirectory -sf $simplygonSettingsFile -asm $inputMaterialString" + $arguments);
+}
+
+// link cube map
+string $cubeMapNode = `shadingNode -asTexture file`;
+setAttr -type "string" ( $cubeMapNode + ".fileTextureName" ) $cubeMapFilePath;
+            
+// fetch lod names
+int $lodIndex = 0;
+string $materialNameArray[];
+string $SGNameArray[];
+
+$processedMeshes = `SimplygonQuery -gpm`;
+string $m;
+for( $m in $processedMeshes )
+{
+    // offset new mesh along x-axis
+    select -r $m;
+	$transAttr = $m+".translateX";
+	print $transAttr;
+	float $bbox[] = `exactWorldBoundingBox`;
+	float $moveOffset = ($lodIndex+1)*($bbox[3]-$bbox[0])*1.1;
+	print $moveOffset;
+	setAttr -lock off $transAttr;
+	move -r $moveOffset 0 0;
+
+    // correct mesh names from Simplygon call
+    $m = substituteAllString($m, "|", "");
+    print ("\nMesh: " + $m + "\n");
+    
+    string $material;
+    
+    // fetch material name for mesh, 
+    // start with checking for reused materials
+    $reuseMaterial = `SimplygonQuery -mrm $m`;
+    if(size ($reuseMaterial) == 0)
+    {
+        $material = `SimplygonQuery -gmm $m`;
+    }
+    else    
+    {
+        print ("  Reusing material: " + $reuseMaterial + "\n");
+	    int $i = stringArrayFind( $reuseMaterial, 0, $materialNameArray );
+        if($i < 0)
+        {
+            print ("  This mesh does not have material baking, ignoring!\n");
+            continue; 
+        }
+        
+        // material was found in lod chain, continuing
+        string $nameOfMaterialNode = $SGNameArray[$i];
+
+        // assign material to selected mesh
+        select -r $m;
+        if(size ($nameOfMaterialNode) != 0)
+        {
+            sets -e -forceElement $nameOfMaterialNode;
+        }
+        
+        // offset new mesh along x-axis
+        move -r (45 * ($lodIndex+1)) 0 0;
+        $lodIndex++;
+        continue;
+    }
+
+    print ("  Material: " + $material + "\n");
+    
+    // create cgfx shader and matching SG node
+    string $shader = `shadingNode -asShader cgfxShader`;
+    string $shaderSG = `sets -renderable true -noSurfaceShader true -empty -name ($shader + "SG")`;
+   
+    stringArrayInsertAtIndex($lodIndex, $SGNameArray, $shaderSG);
+    stringArrayInsertAtIndex($lodIndex, $materialNameArray, $material);
+
+    // connect shader to shaderSG
+    connectAttr -f ( $shader + ".outColor" ) ( $shaderSG + ".surfaceShader" );
+    
+    // user Simplygon PBR shader with default PBR teqhnique
+    cgfxShader -e -fx $pbgShaderFile $shader;
+    setAttr -type "string" ($shader + ".technique") "PBR";
+    
+    // connect cube map
+    connectAttr -force ($cubeMapNode + ".outColor") ($shader + ".CubemapSampler");
+            
+    // fetch channel names for mesh material
+    $channels = `SimplygonQuery -gcm $material`;
+    for( $c in $channels )
+        {
+            // fetch texture path for channel
+            print ("    Channel: " + $c + "\n");
+            $filepath = `SimplygonQuery -gtc $material $c`;
+            print ("      Texture: " + $filepath + "\n");
+
+            // create texture nodes and link textures
+            string $fileNode = `shadingNode -asTexture file`;
+            
+            setAttr -type "string" ( $fileNode + ".fileTextureName" ) $filepath;
+            if($c == "Diffuse")
+            {
+                connectAttr -force ($fileNode + ".outColor") ($shader + ".DiffuseSampler");
+            }
+            else if($c == "Specular")
+            {
+                connectAttr -force ($fileNode + ".outColor") ($shader + ".SpecularSampler");
+            }
+            else if($c == "Roughness")
+            {
+                connectAttr -force ($fileNode + ".outColor") ($shader + ".RoughnessSampler");
+            }
+            else if($c == "Metalness")
+            {
+                connectAttr -force ($fileNode + ".outColor") ($shader + ".MetalnessSampler");
+            }
+            else if($c == "Normals")
+            {
+                connectAttr -force ($fileNode + ".outColor") ($shader + ".NormalsSampler");
+            }
+         }
+    
+    // assign material to selected mesh
+    select -r $m;
+    sets -e -forceElement $shaderSG;
+    
+    $lodIndex++;
+}
+
