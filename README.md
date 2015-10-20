@@ -2,7 +2,7 @@
 ==================================
 
 ## Introduction
-This example shows how you can cast custom shaders using Simplygon through the Maya plugin.
+This example shows how you can cast custom shaders using Simplygon through the Maya plugin. The output material is mapped back into a cgfx shader material as well.
 
 ## Requirements
 - Simplygon 7.0.1441 or greater.
