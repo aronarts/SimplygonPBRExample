@@ -107,19 +107,17 @@ $processedMeshes = `SimplygonQuery -gpm`;
 string $m;
 for( $m in $processedMeshes )
 {
-    // offset new mesh along x-axis
-    select -r $m;
-	$transAttr = $m+".translateX";
-	print $transAttr;
-	float $bbox[] = `exactWorldBoundingBox`;
-	float $moveOffset = ($lodIndex+1)*($bbox[3]-$bbox[0])*1.1;
-	print $moveOffset;
-	setAttr -lock off $transAttr;
-	move -r $moveOffset 0 0;
-
     // correct mesh names from Simplygon call
     $m = substituteAllString($m, "|", "");
     print ("\nMesh: " + $m + "\n");
+
+    // offset new mesh along x-axis
+    select -r $m;
+	$transAttr = $m+".translateX";
+	float $bbox[] = `exactWorldBoundingBox`;
+	float $moveOffset = ($lodIndex+1)*($bbox[3]-$bbox[0])*1.1;
+	setAttr -lock off $transAttr;
+	move -r $moveOffset 0 0;
     
     string $material;
     
@@ -137,7 +135,8 @@ for( $m in $processedMeshes )
         if($i < 0)
         {
             print ("  This mesh does not have material baking, ignoring!\n");
-            continue; 
+         	$lodIndex++;
+           continue; 
         }
         
         // material was found in lod chain, continuing
@@ -216,4 +215,3 @@ for( $m in $processedMeshes )
     
     $lodIndex++;
 }
-
