@@ -17,7 +17,7 @@ This script shows how the shading network is described to Simplygon before the a
 
 ## Getting started
 - You need to replace the root variable at the top of SimplygonPBRScript_MultiMat.mel to point the location you have the example.
-- When you load the character it will most likely be green, the shader path needs to be updated to the correct location for all materials.
+- When you load the character it will most likely lack textures, the shader path needs to be updated to the correct location for all materials. Go to the Attribute Editor and select each part of the asset and set the correct path.
 - Copy the content of the mel script and add it as a shelf command for easy access.
 
 ## Test cases
